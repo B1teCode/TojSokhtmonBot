@@ -287,32 +287,175 @@ class ResidentialComplexHandler:
             name, description, photo = complex_info
             self.bot.send_photo(chat_id, photo, caption=f"Название: {name}\nОписание: {description}")
 
+    # def handle_complex_detail(self, message, detail_field):
+    #     self.bot.send_message(message.chat.id, f"Введите новое значение для '{message.text}':")
+    #     self.bot.register_next_step_handler(message, lambda msg: self.save_complex_detail(msg, detail_field))
+    #
+    # def save_complex_detail(self, message, detail_field):
+    #     new_value = message.text
+    #     with self.conn:
+    #         self.conn.execute(f"UPDATE residential_complex SET {detail_field} = ? WHERE id = ?",
+    #                           (new_value, self.current_complex_id))
+    #     self.bot.send_message(message.chat.id, f"Поле '{detail_field}' обновлено.")
+    #     self.show_complex_menu(message, self.current_complex_id)
+    #
+    # def show_complex_menu(self, message, complex_id):
+    #     self.current_complex_id = complex_id
+    #     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    #     btn1 = types.KeyboardButton('Расположение')
+    #     btn2 = types.KeyboardButton('Отделка')
+    #     btn3 = types.KeyboardButton('Благоустройство')
+    #     btn4 = types.KeyboardButton('Умный дом')
+    #     btn5 = types.KeyboardButton('Архитектура')
+    #     btn6 = types.KeyboardButton('Инфраструктура')
+    #     btn7 = types.KeyboardButton('Экология')
+    #     btn8 = types.KeyboardButton('Редактировать')
+    #     btn9 = types.KeyboardButton('Подобрать квартиру')
+    #     btn10 = types.KeyboardButton('Назад')
+    #     keyboard.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9, btn10)
+    #     self.bot.send_message(message.chat.id, "1Выберите опцию для редактирования:", reply_markup=keyboard)
+    #     self.bot.register_next_step_handler(message, self.handle_complex_menu_selection)
+    # def handle_complex_menu_selection(self, message):
+    #     field_map = {
+    #         'Расположение': 'location',
+    #         'Отделка': 'finishing',
+    #         'Благоустройство': 'improvement',
+    #         'Умный дом': 'smart_home',
+    #         'Архитектура': 'architecture',
+    #         'Инфраструктура': 'infrastructure',
+    #         'Экология': 'ecology'
+    #     }
+    #     if message.text in field_map:
+    #         field = field_map[message.text]
+    #         cursor = self.conn.cursor()
+    #         cursor.execute(f"SELECT {field} FROM residential_complex WHERE id = ?", (self.current_complex_id,))
+    #         field_value = cursor.fetchone()[0]
+    #         if not field_value:
+    #             self.bot.send_message(message.chat.id, f"Поле '{message.text}' пусто.")
+    #         else:
+    #             self.bot.send_message(message.chat.id, f"{message.text}: {field_value}")
+    #     elif message.text == 'Редактировать':
+    #         self.show_edit_menu(message)
+    #     elif message.text == 'Подобрать квартиру':
+    #         self.show_apartment_selection_menu(message)
+    #     elif message.text == 'Назад':
+    #         self.show_admin_menu(message)
+    #     else:
+    #         self.bot.send_message(message.chat.id, "Неверный выбор. Попробуйте снова.")
+    #         self.show_complex_menu(message, self.current_complex_id)
+    #
+    # def show_edit_menu(self, message):
+    #     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    #     btn1 = types.KeyboardButton('Расположение')
+    #     btn2 = types.KeyboardButton('Отделка')
+    #     btn3 = types.KeyboardButton('Благоустройство')
+    #     btn4 = types.KeyboardButton('Умный дом')
+    #     btn5 = types.KeyboardButton('Архитектура')
+    #     btn6 = types.KeyboardButton('Инфраструктура')
+    #     btn7 = types.KeyboardButton('Экология')
+    #     btn8 = types.KeyboardButton('Назад')
+    #     keyboard.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8)
+    #     self.bot.send_message(message.chat.id, "Выберите опцию для редактирования:", reply_markup=keyboard)
+    #     self.bot.register_next_step_handler(message, self.handle_complex_detail)
+
     def handle_complex_detail(self, message, detail_field):
-        self.bot.send_message(message.chat.id, f"Введите новое значение для '{message.text}':")
+        self.bot.send_message(message.chat.id, f"Введите новое значение для '{detail_field}':")
         self.bot.register_next_step_handler(message, lambda msg: self.save_complex_detail(msg, detail_field))
 
     def save_complex_detail(self, message, detail_field):
         new_value = message.text
-        with self.conn:
-            self.conn.execute(f"UPDATE residential_complex SET {detail_field} = ? WHERE id = ?", (new_value, self.current_complex_id))
-        self.bot.send_message(message.chat.id, f"Поле '{detail_field}' обновлено.")
+        try:
+            with self.conn:
+                self.conn.execute(f"UPDATE residential_complex SET {detail_field} = ? WHERE id = ?",
+                                  (new_value, self.current_complex_id))
+            self.bot.send_message(message.chat.id, f"Поле '{detail_field}' обновлено.")
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при обновлении поля '{detail_field}': {e}")
         self.show_complex_menu(message, self.current_complex_id)
 
     def show_complex_menu(self, message, complex_id):
         self.current_complex_id = complex_id
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        btn1 = types.KeyboardButton('Расположение')
-        btn2 = types.KeyboardButton('Отделка')
-        btn3 = types.KeyboardButton('Благоустройство')
-        btn4 = types.KeyboardButton('Умный дом')
-        btn5 = types.KeyboardButton('Архитектура')
-        btn6 = types.KeyboardButton('Инфраструктура')
-        btn7 = types.KeyboardButton('Экология')
-        btn8 = types.KeyboardButton('Редактировать')
-        btn9 = types.KeyboardButton('Подобрать квартиру')
-        btn10 = types.KeyboardButton('Назад')
-        keyboard.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9, btn10)
+        options = ['Расположение', 'Отделка', 'Благоустройство', 'Умный дом', 'Архитектура', 'Инфраструктура',
+                   'Экология', 'Редактировать', 'Подобрать квартиру', 'Назад']
+
+        # Располагаем кнопки в несколько рядов
+        row_width = 2
+        keyboard.add(*[types.KeyboardButton(option) for option in options[:row_width]])
+        keyboard.add(*[types.KeyboardButton(option) for option in options[row_width:2 * row_width]])
+        keyboard.add(*[types.KeyboardButton(option) for option in options[2 * row_width:3 * row_width]])
+        keyboard.add(*[types.KeyboardButton(option) for option in options[3 * row_width:4 * row_width]])
+        keyboard.add(*[types.KeyboardButton(option) for option in options[4 * row_width:]])
+
+        self.bot.send_message(message.chat.id, "Выберите опцию для просмотра:", reply_markup=keyboard)
+        self.bot.register_next_step_handler(message, self.handle_complex_menu_selection)
+
+    def handle_complex_menu_selection(self, message):
+        field_map = {
+            'Расположение': 'location',
+            'Отделка': 'finishing',
+            'Благоустройство': 'improvement',
+            'Умный дом': 'smart_home',
+            'Архитектура': 'architecture',
+            'Инфраструктура': 'infrastructure',
+            'Экология': 'ecology'
+        }
+        selected_option = message.text
+        if selected_option in field_map:
+            field = field_map[selected_option]
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute(f"SELECT {field} FROM residential_complex WHERE id = ?", (self.current_complex_id,))
+                field_value = cursor.fetchone()[0]
+                if not field_value:
+                    self.bot.send_message(message.chat.id, f"Поле '{selected_option}' пусто.")
+                else:
+                    self.bot.send_message(message.chat.id, f"{selected_option}: {field_value}")
+            except sqlite3.Error as e:
+                self.bot.send_message(message.chat.id, f"Ошибка при получении данных: {e}")
+            self.show_complex_menu(message, self.current_complex_id)
+        elif selected_option == 'Редактировать':
+            self.show_edit_menu(message)
+        elif selected_option == 'Подобрать квартиру':
+            self.show_apartment_selection_menu(message)
+        elif selected_option == 'Назад':
+            self.show_admin_menu(message)
+        else:
+            self.bot.send_message(message.chat.id, "Неверный выбор. Попробуйте снова.")
+            self.show_complex_menu(message, self.current_complex_id)
+
+    def show_edit_menu(self, message):
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        options = ['Расположение', 'Отделка', 'Благоустройство', 'Умный дом', 'Архитектура', 'Инфраструктура',
+                   'Экология', 'Назад']
+
+        # Располагаем кнопки в несколько рядов
+        row_width = 2
+        keyboard.add(*[types.KeyboardButton(option) for option in options[:row_width]])
+        keyboard.add(*[types.KeyboardButton(option) for option in options[row_width:2 * row_width]])
+        keyboard.add(*[types.KeyboardButton(option) for option in options[2 * row_width:]])
+
         self.bot.send_message(message.chat.id, "Выберите опцию для редактирования:", reply_markup=keyboard)
+        self.bot.register_next_step_handler(message, self.handle_complex_detail_selection)
+
+    def handle_complex_detail_selection(self, message):
+        field_map = {
+            'Расположение': 'location',
+            'Отделка': 'finishing',
+            'Благоустройство': 'improvement',
+            'Умный дом': 'smart_home',
+            'Архитектура': 'architecture',
+            'Инфраструктура': 'infrastructure',
+            'Экология': 'ecology'
+        }
+        selected_option = message.text
+        if selected_option in field_map:
+            self.handle_complex_detail(message, field_map[selected_option])
+        elif selected_option == 'Назад':
+            self.show_complex_menu(message, self.current_complex_id)
+        else:
+            self.bot.send_message(message.chat.id, "Неверный выбор. Попробуйте снова.")
+            self.show_edit_menu(message)
 
     def show_apartment_selection_menu(self, message):
         cursor = self.conn.cursor()
@@ -564,8 +707,6 @@ class MainBotHandler:
         cursor = self.residential_complex_handler.conn.cursor()
         cursor.execute("SELECT name FROM residential_complex")
         return [name for (name,) in cursor.fetchall()]
-
-
 
 
 if __name__ == '__main__':
