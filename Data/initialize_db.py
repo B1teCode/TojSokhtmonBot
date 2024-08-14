@@ -29,6 +29,14 @@ def create_database():
             FOREIGN KEY (residential_complex_id) REFERENCES residential_complex(id)
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS promotions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            photo BLOB,
+            description TEXT
+        )
+        ''')
     conn.commit()
     conn.close()
 

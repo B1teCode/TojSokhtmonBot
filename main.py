@@ -1,9 +1,8 @@
 import telebot
 from telebot import types
 import sqlite3
-import openpyxl
-from openpyxl import Workbook
 from config import *
+import io
 
 # Основной бот
 main_bot = telebot.TeleBot(MAIN_BOT_TOKEN, parse_mode='HTML')
@@ -11,22 +10,27 @@ main_bot = telebot.TeleBot(MAIN_BOT_TOKEN, parse_mode='HTML')
 # Административный бот
 admin_bot = telebot.TeleBot(ADMIN_BOT_TOKEN, parse_mode='HTML')
 
+#Бот для приема заявок
+feedback_bot = telebot.TeleBot(FEEDBACK_BOT_TOKEN, parse_mode='HTML')
+
+class FeedbackBotHandler:
+    def __init__(self, bot):
+        self.bot = bot
+        @bot.message_handler(commands=['start'])
+        def send_welcome_main(message):
+            if message.chat.id == ADMIN_ID:
+                welcome_message = (
+                    "🎉 <b>Добро пожаловать!</b> 🎉\n\n"
+                )
+                self.bot.send_message(message.chat.id, welcome_message)
+            else:
+                bot.send_message(message.chat.id, "У вас нет доступа к этому боту.")
+
 class FeedbackHandler:
     def __init__(self, bot):
         self.bot = bot
         self.user_fio = None
         self.user_phone = None
-        self.init_excel()
-
-    def init_excel(self):
-        try:
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Обратная связь"
-            ws.append(["ФИО", "Номер телефона"])
-            wb.save("feedback.xlsx")
-        except Exception as e:
-            print(f"Ошибка при инициализации Excel-файла: {e}")
 
     def start_feedback(self, message):
         self.bot.send_message(message.chat.id, "Пожалуйста, введите ваше ФИО:")
@@ -39,20 +43,9 @@ class FeedbackHandler:
 
     def get_phone(self, message):
         self.user_phone = message.text
-        self.save_to_excel(self.user_fio, self.user_phone)
-        admin_message = f"Новый запрос обратной связи:\n\nФИО: {self.user_fio}\nНомер телефона: {self.user_phone}"
-        admin_bot.send_message(ADMIN_ID, admin_message)
+        feeaback_message = f"Новый запрос обратной связи:\n\nФИО: {self.user_fio}\nНомер телефона: {self.user_phone}"
+        feedback_bot.send_message(ADMIN_ID, feeaback_message)
         self.bot.send_message(message.chat.id, "Спасибо! Ваш запрос был отправлен.")
-
-    @staticmethod
-    def save_to_excel(fio, phone):
-        try:
-            wb = openpyxl.load_workbook("feedback.xlsx")
-            ws = wb.active
-            ws.append([fio, phone])
-            wb.save("feedback.xlsx")
-        except Exception as e:
-            print(f"Ошибка при сохранении в Excel: {e}")
 
 # Класс для работы с жилыми комплексами
 class ResidentialComplexHandler:
@@ -237,13 +230,14 @@ class ResidentialComplexHandler:
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
         btn1 = types.KeyboardButton('Включить бота')
         btn2 = types.KeyboardButton('Выключить бота')
-        btn3 = types.KeyboardButton('Отправить уведомление')
+        btn3 = types.KeyboardButton('Добавить акцию')
+        btn9 = types.KeyboardButton('Список акций')
         btn4 = types.KeyboardButton('Добавить жилой комплекс')
         btn5 = types.KeyboardButton('Удалить жилой комплекс')
         btn6 = types.KeyboardButton('Показать жилые комплексы')
         btn7 = types.KeyboardButton('Добавить квартиру')
         btn8 = types.KeyboardButton('Удалить квартиру')
-        keyboard.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8)
+        keyboard.add(btn1, btn2, btn3, btn9, btn4, btn5, btn6, btn7, btn8)
 
         self.bot.send_message(message.chat.id, "Выберите опцию:", reply_markup=keyboard)
 
@@ -441,10 +435,168 @@ class ResidentialComplexHandler:
             self.bot.send_message(message.chat.id, "Неверный выбор. Попробуйте снова.")
             self.show_apartment_selection_menu(message)
 
+class PromotionHandler:
+    def __init__(self, bot, residential_complex_handler):
+        self.bot = bot
+        self.residential_complex_handler = residential_complex_handler
+        self.conn = sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False)
+        self.promotion_title = None
+        self.promotion_photo = None
+        self.promotion_description = None
+        self.current_promotion_id = None  # Для хранения ID текущей акции
+
+    def start_promotion_creation(self, message):
+        self.bot.send_message(message.chat.id, "Напишите название акции:")
+        self.bot.register_next_step_handler(message, self.get_promotion_title)
+
+    def get_promotion_title(self, message):
+        self.promotion_title = message.text
+        self.bot.send_message(message.chat.id, "Добавьте фото к акции (отправьте фото):")
+        self.bot.register_next_step_handler(message, self.get_promotion_photo)
+
+    def get_promotion_photo(self, message):
+        if message.photo:
+            file_id = message.photo[-1].file_id  # Получаем ID фото
+            file_info = self.bot.get_file(file_id)  # Получаем информацию о файле
+
+            try:
+                downloaded_file = self.bot.download_file(file_info.file_path)  # Скачиваем файл
+            except Exception as e:
+                self.bot.send_message(message.chat.id, f"Ошибка при скачивании файла: {e}")
+                return
+
+            self.promotion_photo = sqlite3.Binary(downloaded_file)  # Преобразуем файл в бинарные данные
+            self.bot.send_message(message.chat.id, "Добавьте описание к акции:")
+            self.bot.register_next_step_handler(message, self.get_promotion_description)
+        else:
+            self.bot.send_message(message.chat.id, "Пожалуйста, отправьте фото, а не текст.")
+            self.bot.register_next_step_handler(message, self.get_promotion_photo)
+
+    def get_promotion_description(self, message):
+        self.promotion_description = message.text
+
+        # Сохраняем все данные в базу данных
+        try:
+            with self.conn:
+                self.conn.execute('''
+                    INSERT INTO promotions (title, photo, description) VALUES (?, ?, ?)
+                ''', (self.promotion_title, self.promotion_photo, self.promotion_description))
+            self.bot.send_message(message.chat.id, "Акция успешно добавлена!")
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при добавлении акции: {e}")
+
+    def show_promotion_list(self, message):
+        if message.text == 'Назад':
+            self.residential_complex_handler.show_admin_menu(message)
+            return
+        elif message.text == 'Удалить акцию':
+            self.delete_promotion(message)
+            return
+
+        try:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT id, title FROM promotions")
+                promotions = cursor.fetchall()
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при получении списка акций: {e}")
+            return
+
+        if promotions:
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            row = []
+            for promo in promotions:
+                row.append(types.KeyboardButton(promo[1]))
+                if len(row) == 3:
+                    markup.add(*row)
+                    row = []
+            if row:
+                markup.add(*row)
+            markup.add(types.KeyboardButton("Назад"))
+            markup.add(types.KeyboardButton("Удалить акцию"))
+
+            self.bot.send_message(message.chat.id, "Выберите акцию:", reply_markup=markup)
+            self.bot.register_next_step_handler(message, self.process_selected_action)
+        else:
+            self.bot.send_message(message.chat.id, "Акций пока нет.", reply_markup=types.ReplyKeyboardRemove())
+            self.residential_complex_handler.show_admin_menu(message)
+
+    def process_selected_action(self, message):
+        if message.text == 'Назад':
+            self.residential_complex_handler.show_admin_menu(message)
+        elif message.text == 'Удалить акцию':
+            self.delete_promotion(message)
+        else:
+            self.show_promotion_details(message)
+            # После отображения деталей акции снова показывайте список акций
+            self.show_promotion_list(message)
+
+    def show_promotion_details(self, message):
+        try:
+            with sqlite3.connect('Data/tojsokhtmon.db') as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT photo, description FROM promotions WHERE title = ?", (message.text,))
+                promotion = cursor.fetchone()
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при получении данных акции: {e}")
+            return
+
+        if promotion:
+            photo, description = promotion
+            if photo:
+                photo_stream = io.BytesIO(photo)  # Преобразуем бинарные данные в поток
+                photo_stream.seek(0)  # Убедимся, что указатель находится в начале потока
+
+                self.bot.send_photo(message.chat.id, photo_stream, caption=f"{message.text}\n\n{description}")
+            else:
+                self.bot.send_message(message.chat.id, f"{message.text}\n\n{description}")
+        else:
+            self.bot.send_message(message.chat.id, "Акция не найдена.")
+
+    def delete_promotion(self, message):
+        if message.text == 'Назад':
+            self.show_promotion_list(message)
+            return
+
+        try:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT id, title FROM promotions")
+                promotions = cursor.fetchall()
+
+            if promotions:
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                for promo in promotions:
+                    markup.add(types.KeyboardButton(promo[1]))  # Название акции как кнопка для удаления
+                markup.add(types.KeyboardButton("Назад"))
+
+                self.bot.send_message(message.chat.id, "Выберите акцию для удаления:", reply_markup=markup)
+                self.bot.register_next_step_handler(message, self.delete_selected_promotion)
+            else:
+                self.bot.send_message(message.chat.id, "Нет акций для удаления.",
+                                      reply_markup=types.ReplyKeyboardRemove())
+                self.residential_complex_handler.show_admin_menu(message)
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при получении списка акций: {e}")
+
+    def delete_selected_promotion(self, message):
+        promotion_title = message.text
+        try:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute("DELETE FROM promotions WHERE title = ?", (promotion_title,))
+                self.conn.commit()
+            self.bot.send_message(message.chat.id, f"Акция '{promotion_title}' была удалена.")
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при удалении акции: {e}")
+
+        self.show_promotion_list(message)  # Показываем обновленный список акций
+
 class AdminBotHandler:
     def __init__(self, bot):
         self.bot = bot
         self.residential_complex_handler = ResidentialComplexHandler(bot)
+        self.promotion_handler = PromotionHandler(bot, self.residential_complex_handler)
         self.main_bot_active = True
 
         @bot.message_handler(commands=['start'])
@@ -462,9 +614,12 @@ class AdminBotHandler:
             elif message.text == 'Выключить бота':
                 self.main_bot_active = False
                 bot.send_message(message.chat.id, "Основной бот выключен.")
-            elif message.text == 'Отправить уведомление':
-                bot.send_message(message.chat.id, "Введите сообщение для отправки всем пользователям:")
-                bot.register_next_step_handler(message, self.send_notification)
+            elif message.text == 'Добавить акцию':
+                self.promotion_handler.start_promotion_creation(message)
+            elif message.text == 'Список акций':
+                self.promotion_handler.show_promotion_list(message)
+            elif message.text == 'Удалить акцию':
+                self.promotion_handler.delete_promotion(message)
             elif message.text == 'Добавить жилой комплекс':
                 self.residential_complex_handler.add_complex(message)
             elif message.text == 'Удалить жилой комплекс':
@@ -507,6 +662,7 @@ class MainBotHandler:
         self.admin_bot_handler = admin_bot_handler
         self.feedback_handler = FeedbackHandler(bot)
         self.residential_complex_handler = ResidentialComplexHandler(bot)
+        self.promotion_handler = PromotionHandler(bot, self.residential_complex_handler)
         self.current_complex_id = None
         self.current_selection_mode = None  # Указывает режим выбора: "complex" или "apartment"
 
@@ -523,9 +679,15 @@ class MainBotHandler:
             else:
                 self.bot.send_message(message.chat.id, "Извините, бот временно не доступен.")
 
-        @bot.message_handler(func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '📞 Запрос обратной связи')
+        @bot.message_handler(
+            func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '📞 Запрос обратной связи')
         def handle_feedback_button(message):
             self.feedback_handler.start_feedback(message)
+
+        @bot.message_handler(
+            func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '💼 Текущие акции и предложения')
+        def handle_promotion_button(message):
+            self.show_promotion_list(message)
 
         @bot.message_handler(func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '🏢 Жилой комплекс')
         def handle_complex_button(message):
@@ -535,6 +697,17 @@ class MainBotHandler:
         def handle_select_apartment_button(message):
             self.current_selection_mode = 'apartment'
             self.show_complex_menu(message.chat.id)
+
+        # @bot.message_handler(
+        #     func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '🏘 Подобрать Недвижимость')
+        # def handle_select_real_estate_button(message):
+        #     # Отправляем сообщение с кнопкой WebApp
+        #     keyboard = types.InlineKeyboardMarkup()
+        #     webapp_button = types.InlineKeyboardButton(text="Перейти",
+        #                                                web_app=types.WebAppInfo(url="https://tojsokhtmon.tj"))
+        #     keyboard.add(webapp_button)
+        #     self.bot.send_message(message.chat.id, "Воспользуйтесь фильтром подбора недвижимости 👇",
+        #                           reply_markup=keyboard)
 
         @bot.message_handler(func=lambda message: self.admin_bot_handler.main_bot_active and message.text == 'Назад')
         def handle_back_button(message):
@@ -597,12 +770,15 @@ class MainBotHandler:
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
         btn1 = types.KeyboardButton('🏢 Жилой комплекс')
         btn2 = types.KeyboardButton('🏠 Подобрать квартиру')
-        btn3 = types.KeyboardButton('💼 Текущие акции и предложения')
-        btn4 = types.KeyboardButton('📞 Запрос обратной связи')
-        btn5 = types.KeyboardButton('❓ Часто задаваемые вопросы (FAQ)')
+        btn3 = types.KeyboardButton('🏘 Подобрать Недвижимость', web_app=types.WebAppInfo(url="https://tojsokhtmon.tj"))  # Новая кнопка
+        btn4 = types.KeyboardButton('💼 Текущие акции и предложения')
+        btn5 = types.KeyboardButton('📞 Запрос обратной связи')
+        btn6 = types.KeyboardButton('❓ Часто задаваемые вопросы (FAQ)')
         keyboard.add(btn1, btn2)
-        keyboard.add(btn3)
-        keyboard.add(btn4, btn5)
+        keyboard.add(btn3, btn4)
+        keyboard.add(btn5, btn6)
+        # keyboard.add(btn4, btn5)
+        # keyboard.add(btn6)
         message = "Выберите опцию"
         self.bot.send_message(chat_id, message, reply_markup=keyboard)
 
@@ -700,10 +876,53 @@ class MainBotHandler:
             self.bot.send_message(ADMIN_ID, f"Ошибка при получении списка квартир: {e}")
             return []
 
+    def show_promotion_list(self, message):
+        if message.text == 'Назад':
+            self.show_main_menu(message)
+            return
+
+        try:
+            with sqlite3.connect('Data/tojsokhtmon.db') as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, title FROM promotions")
+                promotions = cursor.fetchall()
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при получении списка акций: {e}")
+            return
+
+        if promotions:
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            row = []
+            for promo in promotions:
+                row.append(types.KeyboardButton(promo[1]))
+                if len(row) == 3:
+                    markup.add(*row)
+                    row = []
+            if row:
+                markup.add(*row)
+            markup.add(types.KeyboardButton("Назад"))
+
+            self.bot.send_message(message.chat.id, "Выберите акцию:", reply_markup=markup)
+            self.bot.register_next_step_handler(message, self.process_selected_action)
+        else:
+            self.bot.send_message(message.chat.id, "Акций пока нет.", reply_markup=types.ReplyKeyboardRemove())
+            self.show_main_menu(message)
+
+    def process_selected_action(self, message):
+        if message.text == 'Назад':
+            self.show_main_menu(message)
+        else:
+            self.promotion_handler.show_promotion_details(message)
+            # После отображения деталей акции снова показывайте список акций
+            self.show_promotion_list(message)
+
+
 
 if __name__ == '__main__':
     admin_bot_handler = AdminBotHandler(admin_bot)
     main_bot_handler = MainBotHandler(main_bot, admin_bot_handler)
+    feedback_bot_handler = FeedbackBotHandler(feedback_bot)
     from threading import Thread
     Thread(target=lambda: main_bot.polling(none_stop=True)).start()
+    Thread(target=lambda: feedback_bot.polling(none_stop=True)).start()
     admin_bot.polling(none_stop=True)
