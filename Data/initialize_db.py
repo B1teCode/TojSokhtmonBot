@@ -37,6 +37,13 @@ def create_database():
             description TEXT
         )
         ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS faq (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL
+        )
+        ''')
     conn.commit()
     conn.close()
 

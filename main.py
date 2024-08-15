@@ -237,7 +237,8 @@ class ResidentialComplexHandler:
         btn6 = types.KeyboardButton('Показать жилые комплексы')
         btn7 = types.KeyboardButton('Добавить квартиру')
         btn8 = types.KeyboardButton('Удалить квартиру')
-        keyboard.add(btn1, btn2, btn3, btn9, btn4, btn5, btn6, btn7, btn8)
+        btn10 = types.KeyboardButton('Часто задаваемые вопросы (FAQ)')
+        keyboard.add(btn1, btn2, btn3, btn9, btn4, btn5, btn6, btn7, btn8, btn10)
 
         self.bot.send_message(message.chat.id, "Выберите опцию:", reply_markup=keyboard)
 
@@ -592,11 +593,114 @@ class PromotionHandler:
 
         self.show_promotion_list(message)  # Показываем обновленный список акций
 
+class FAQHandler:
+    def __init__(self, bot, residential_complex_handler):
+        self.bot = bot
+        self.conn = sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False)
+        self.residential_complex_handler = residential_complex_handler
+        self.current_faq_title = None  # Для хранения текущего заголовка FAQ
+
+    def show_faq_menu(self, message):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, title FROM faq")
+        faqs = cursor.fetchall()
+
+        if not faqs:
+            self.bot.send_message(message.chat.id, "Вопросы не добавлены.")
+            markup = self._get_empty_faq_menu_markup()
+        else:
+            markup = self._get_faq_menu_markup(faqs)
+            self.bot.send_message(message.chat.id, "Выберите вопрос для просмотра или управления FAQ:", reply_markup=markup)
+            self.bot.register_next_step_handler(message, self._handle_faq_menu_selection)
+
+    def _get_empty_faq_menu_markup(self):
+        markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+        markup.add('Добавить вопрос', 'Назад')
+        return markup
+
+    def _get_faq_menu_markup(self, faqs):
+        markup = types.ReplyKeyboardMarkup(row_width=3, resize_keyboard=True)
+        for faq in faqs:
+            markup.add(faq[1])  # Добавляем названия вопросов как кнопки
+        markup.add('Добавить вопрос', 'Удалить вопрос', 'Назад')
+        return markup
+
+    def _handle_faq_menu_selection(self, message):
+        if message.text == 'Добавить вопрос':
+            self.add_faq(message)
+        elif message.text == 'Удалить вопрос':
+            self.delete_faq(message)
+        elif message.text == 'Назад':
+            self.handle_back(message)
+        else:
+            # Обработка выбора конкретного FAQ
+            self.send_faq_details(message, message.text)
+
+    def add_faq(self, message):
+        self.bot.send_message(message.chat.id, "Введите название вопроса:")
+        self.bot.register_next_step_handler(message, self._save_faq_title)
+
+    def _save_faq_title(self, message):
+        self.current_faq_title = message.text
+        self.bot.send_message(message.chat.id, "Введите ответ на вопрос:")
+        self.bot.register_next_step_handler(message, self._save_faq_description)
+
+    def _save_faq_description(self, message):
+        faq_description = message.text
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT INTO faq (title, description) VALUES (?, ?)", (self.current_faq_title, faq_description))
+        self.conn.commit()
+        self.bot.send_message(message.chat.id, "Вопрос добавлен.")
+        self.show_faq_menu(message)
+
+    def delete_faq(self, message):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, title FROM faq")
+        faqs = cursor.fetchall()
+
+        if not faqs:
+            self.bot.send_message(message.chat.id, "Нет вопросов для удаления.")
+            self.show_faq_menu(message)
+            return
+
+        markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+        for faq in faqs:
+            markup.add(faq[1])  # Название вопроса как кнопка для удаления
+        markup.add('Назад')
+        self.bot.send_message(message.chat.id, "Выберите вопрос для удаления:", reply_markup=markup)
+        self.bot.register_next_step_handler(message, self._confirm_faq_deletion)
+
+    def _confirm_faq_deletion(self, message):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM faq WHERE title = ?", (message.text,))
+        faq_id = cursor.fetchone()
+        if faq_id:
+            cursor.execute("DELETE FROM faq WHERE id = ?", (faq_id[0],))
+            self.conn.commit()
+            self.bot.send_message(message.chat.id, "Вопрос удален.")
+        else:
+            self.bot.send_message(message.chat.id, "Вопрос не найден.")
+        self.show_faq_menu(message)
+
+    def send_faq_details(self, message, faq_title):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT title, description FROM faq WHERE title = ?", (faq_title,))
+        faq = cursor.fetchone()
+        if faq:
+            self.bot.send_message(message.chat.id, f"{faq[0]}\n\n{faq[1]}")
+        else:
+            self.bot.send_message(message.chat.id, "Вопрос не найден.")
+        self.show_faq_menu(message)
+
+    def handle_back(self, message):
+        self.residential_complex_handler.show_admin_menu(message)
+
 class AdminBotHandler:
     def __init__(self, bot):
         self.bot = bot
         self.residential_complex_handler = ResidentialComplexHandler(bot)
         self.promotion_handler = PromotionHandler(bot, self.residential_complex_handler)
+        self.faq_handler = FAQHandler(bot, self.residential_complex_handler)
         self.main_bot_active = True
 
         @bot.message_handler(commands=['start'])
@@ -605,6 +709,24 @@ class AdminBotHandler:
                 self.residential_complex_handler.show_admin_menu(message)
             else:
                 bot.send_message(message.chat.id, "У вас нет доступа к этому боту.")
+
+        # Обработка кнопки "Добавить"
+        # @bot.message_handler(func=lambda message: message.text == 'Добавить вопрос')
+        # def handle_add_faq(message):
+        #     self.faq_handler.add_faq(message)
+        #
+        # # Обработка кнопки "Удалить"
+        # @bot.message_handler(func=lambda message: message.text == 'Удалить вопрос')
+        # def handle_delete_faq(message):
+        #     self.faq_handler.delete_faq(message)
+
+        # # Обработка других сообщений
+        # @bot.message_handler(func=lambda message: True)
+        # def handle_message(message):
+        #     if message.text == 'Назад':
+        #         self.faq_handler.handle_back(message)
+        #     else:
+        #         self.faq_handler.send_faq_details(message, message.text)
 
         @bot.message_handler(func=lambda message: message.chat.id == ADMIN_ID)
         def handle_admin_commands(message):
@@ -634,6 +756,12 @@ class AdminBotHandler:
                 self.residential_complex_handler.show_admin_menu(message)
             elif message.text == 'Подобрать квартиру':
                 self.residential_complex_handler.show_apartment_selection_menu(message)
+            elif message.text == 'Часто задаваемые вопросы (FAQ)':
+                self.faq_handler.show_faq_menu(message)
+            elif message.text == 'Добавить вопрос':
+                self.faq_handler.add_faq(message)
+            elif message.text == 'Удалить вопрос':
+                self.faq_handler.delete_faq(message)
             else:
                 cursor = self.residential_complex_handler.conn.cursor()
                 cursor.execute("SELECT id FROM residential_complex WHERE name = ?", (message.text,))
@@ -688,6 +816,12 @@ class MainBotHandler:
             func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '💼 Текущие акции и предложения')
         def handle_promotion_button(message):
             self.show_promotion_list(message)
+
+        @bot.message_handler(
+            func=lambda
+                    message: self.admin_bot_handler.main_bot_active and message.text == '❓ Часто задаваемые вопросы (FAQ)')
+        def handle_faq_button(message):
+            self.show_faq_menu(message)
 
         @bot.message_handler(func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '🏢 Жилой комплекс')
         def handle_complex_button(message):
@@ -910,12 +1044,65 @@ class MainBotHandler:
 
     def process_selected_action(self, message):
         if message.text == 'Назад':
-            self.show_main_menu(message)
+            self.show_main_menu(message.chat.id)
         else:
             self.promotion_handler.show_promotion_details(message)
             # После отображения деталей акции снова показывайте список акций
             self.show_promotion_list(message)
 
+    def show_faq_menu(self, message):
+        try:
+            with sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, title FROM faq")
+                faqs = cursor.fetchall()
+
+            if not faqs:
+                self.bot.send_message(message.chat.id, "Вопросы не добавлены.")
+            else:
+                markup = self._get_faq_menu_markup(faqs)
+                self.bot.send_message(message.chat.id, "Выберите вопрос для просмотра или управления FAQ:",
+                                      reply_markup=markup)
+                self.bot.register_next_step_handler(message, self._handle_faq_menu_selection)
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при получении FAQ: {e}")
+
+    def _get_faq_menu_markup(self, faqs):
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        row = []
+        for faq in faqs:
+            row.append(types.KeyboardButton(faq[1]))
+            if len(row) == 3:
+                markup.add(*row)
+                row = []
+        if row:
+            markup.add(*row)
+        markup.add('Назад')
+        return markup
+
+    def _handle_faq_menu_selection(self, message):
+        if message.text == 'Назад':
+            self.show_main_menu(message.chat.id)
+        else:
+            # Обработка выбора конкретного FAQ
+            self.send_faq_details(message, message.text)
+
+    def send_faq_details(self, message, faq_title):
+        try:
+            with sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT title, description FROM faq WHERE title = ?", (faq_title,))
+                faq = cursor.fetchone()
+
+            if faq:
+                self.bot.send_message(message.chat.id, f"{faq[0]}\n\n{faq[1]}")
+            else:
+                self.bot.send_message(message.chat.id, "Вопрос не найден.")
+
+            # Показать меню FAQ снова после отправки деталей
+            self.show_faq_menu(message)
+        except sqlite3.Error as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при получении деталей FAQ: {e}")
 
 
 if __name__ == '__main__':
