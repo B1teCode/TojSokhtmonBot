@@ -7,18 +7,11 @@ def create_database():
         CREATE TABLE IF NOT EXISTS residential_complex (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            location TEXT,
-            finishing TEXT,
-            improvement TEXT,
-            smart_home TEXT,
-            architecture TEXT,
-            infrastructure TEXT,
-            ecology TEXT,
             description TEXT,
             photo BLOB
         )
     ''')
-    cursor.execute('''
+    cursor.execute('''        
         CREATE TABLE IF NOT EXISTS apartments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             photo BLOB,

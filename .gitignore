@@ -1,3 +1,2 @@
-config.py
-feedback.xlsx
-Data/tojsokhtmon.db
+bot/config.py
+data/tojsokhtmon.db

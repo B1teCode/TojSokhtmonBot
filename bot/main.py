@@ -31,27 +31,32 @@ class FeedbackHandler:
         self.bot = bot
         self.user_fio = None
         self.user_phone = None
+        self.complex_name = None
 
-    def start_feedback(self, message):
+    def start_feedback(self, message, complex_name=None):
+        self.complex_name = complex_name
         self.bot.send_message(message.chat.id, "Пожалуйста, введите ваше ФИО:")
         self.bot.register_next_step_handler(message, self.get_fio)
 
     def get_fio(self, message):
         self.user_fio = message.text
-        self.bot.send_message(message.chat.id, "Теперь введите ваш номер телефона:")
+        self.bot.send_message(message.chat.id, f'{self.user_fio}, введите пожалуйста свой номер телефона:')
         self.bot.register_next_step_handler(message, self.get_phone)
 
     def get_phone(self, message):
         self.user_phone = message.text
-        feeaback_message = f"Новый запрос обратной связи:\n\nФИО: {self.user_fio}\nНомер телефона: {self.user_phone}"
-        feedback_bot.send_message(ADMIN_ID, feeaback_message)
-        self.bot.send_message(message.chat.id, "Спасибо! Ваш запрос был отправлен.")
-
+        feeback_message = f"Новый запрос обратной связи:\n\nФИО: {self.user_fio}\nНомер телефона: {self.user_phone}\n\nЖилой комплекс: {self.complex_name}"
+        try:
+            feedback_bot.send_message(ADMIN_ID, feeback_message)
+        except Exception as e:
+            self.bot.send_message(message.chat.id, f"Ошибка при отправке сообщения")
+        else:
+            self.bot.send_message(message.chat.id, "Спасибо! Ваш запрос был отправлен.")
 # Класс для работы с жилыми комплексами
 class ResidentialComplexHandler:
     def __init__(self, bot):
         self.bot = bot
-        self.conn = sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False)
+        self.conn = sqlite3.connect('../data/tojsokhtmon.db', check_same_thread=False)
         self.current_complex_id = None
         self.complex_name = None
         self.complex_description = None
@@ -79,10 +84,10 @@ class ResidentialComplexHandler:
 
             with self.conn:
                 self.conn.execute('''
-                    INSERT INTO residential_complex (name, description, photo, location, finishing, improvement, smart_home, architecture, infrastructure, ecology)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO residential_complex (name, description, photo)
+                    VALUES (?, ?, ?)
                 ''', (
-                    self.complex_name, self.complex_description, sqlite3.Binary(downloaded_file), "", "", "", "", "", "", ""
+                    self.complex_name, self.complex_description, sqlite3.Binary(downloaded_file)
                 ))
 
             self.bot.send_message(message.chat.id, f"Жилой комплекс '{self.complex_name}' добавлен.")
@@ -228,6 +233,7 @@ class ResidentialComplexHandler:
 
     def show_admin_menu(self, message):
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        btn11 = types.KeyboardButton('Войти в админ панель tojsokhtmon.tj', web_app=types.WebAppInfo(url="https://tojsokhtmon.tj/login"))
         btn1 = types.KeyboardButton('Включить бота')
         btn2 = types.KeyboardButton('Выключить бота')
         btn3 = types.KeyboardButton('Добавить акцию')
@@ -238,6 +244,7 @@ class ResidentialComplexHandler:
         btn7 = types.KeyboardButton('Добавить квартиру')
         btn8 = types.KeyboardButton('Удалить квартиру')
         btn10 = types.KeyboardButton('Часто задаваемые вопросы (FAQ)')
+        keyboard.add(btn11)
         keyboard.add(btn1, btn2, btn3, btn9, btn4, btn5, btn6, btn7, btn8, btn10)
 
         self.bot.send_message(message.chat.id, "Выберите опцию:", reply_markup=keyboard)
@@ -296,26 +303,10 @@ class ResidentialComplexHandler:
             name, description, photo = complex_info
             self.bot.send_photo(chat_id, photo, caption=f"<b>{name}</b>\n\nОписание: {description}", parse_mode='HTML')
 
-    def handle_complex_detail(self, message, detail_field):
-        self.bot.send_message(message.chat.id, f"Введите новое значение для <b>{detail_field}</b>", parse_mode='HTML')
-        self.bot.register_next_step_handler(message, lambda msg: self.save_complex_detail(msg, detail_field))
-
-    def save_complex_detail(self, message, detail_field):
-        new_value = message.text
-        try:
-            with self.conn:
-                self.conn.execute(f"UPDATE residential_complex SET {detail_field} = ? WHERE id = ?",
-                                  (new_value, self.current_complex_id))
-            self.bot.send_message(message.chat.id, f"Поле <b>{detail_field}</b> обновлено.", parse_mode='HTML')
-        except sqlite3.Error as e:
-            self.bot.send_message(message.chat.id, f"Ошибка при обновлении поля <b>{detail_field}</b>: {e}", parse_mode='HTML')
-        self.show_complex_menu(message, self.current_complex_id)
-
     def show_complex_menu(self, message, complex_id):
         self.current_complex_id = complex_id
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        options = ['Расположение', 'Отделка', 'Благоустройство', 'Умный дом', 'Архитектура', 'Инфраструктура',
-                   'Экология', 'Редактировать', 'Подобрать квартиру', 'Назад']
+        options = ['Подобрать квартиру', 'Назад']
 
         # Располагаем кнопки в несколько рядов
         row_width = 2
@@ -329,71 +320,15 @@ class ResidentialComplexHandler:
         self.bot.register_next_step_handler(message, self.handle_complex_menu_selection)
 
     def handle_complex_menu_selection(self, message):
-        field_map = {
-            'Расположение': 'location',
-            'Отделка': 'finishing',
-            'Благоустройство': 'improvement',
-            'Умный дом': 'smart_home',
-            'Архитектура': 'architecture',
-            'Инфраструктура': 'infrastructure',
-            'Экология': 'ecology'
-        }
+
         selected_option = message.text
-        if selected_option in field_map:
-            field = field_map[selected_option]
-            try:
-                cursor = self.conn.cursor()
-                cursor.execute(f"SELECT {field} FROM residential_complex WHERE id = ?", (self.current_complex_id,))
-                field_value = cursor.fetchone()[0]
-                if not field_value:
-                    self.bot.send_message(message.chat.id, f"<b>{selected_option}</b>: К сожаление информация ещё не добавлена", parse_mode='HTML')
-                else:
-                    self.bot.send_message(message.chat.id, f"<b>{selected_option}</b>\n\n {field_value}", parse_mode='HTML')
-            except sqlite3.Error as e:
-                self.bot.send_message(message.chat.id, f"Ошибка при получении данных: {e}")
-            self.show_complex_menu(message, self.current_complex_id)
-        elif selected_option == 'Редактировать':
-            self.show_edit_menu(message)
-        elif selected_option == 'Подобрать квартиру':
+        if selected_option == 'Подобрать квартиру':
             self.show_apartment_selection_menu(message)
         elif selected_option == 'Назад':
             self.show_admin_menu(message)
         else:
             self.bot.send_message(message.chat.id, "Неверный выбор. Попробуйте снова.")
             self.show_complex_menu(message, self.current_complex_id)
-
-    def show_edit_menu(self, message):
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        options = ['Расположение', 'Отделка', 'Благоустройство', 'Умный дом', 'Архитектура', 'Инфраструктура',
-                   'Экология', 'Назад']
-
-        # Располагаем кнопки в несколько рядов
-        row_width = 2
-        keyboard.add(*[types.KeyboardButton(option) for option in options[:row_width]])
-        keyboard.add(*[types.KeyboardButton(option) for option in options[row_width:2 * row_width]])
-        keyboard.add(*[types.KeyboardButton(option) for option in options[2 * row_width:]])
-
-        self.bot.send_message(message.chat.id, "Выберите опцию для редактирования:", reply_markup=keyboard)
-        self.bot.register_next_step_handler(message, self.handle_complex_detail_selection)
-
-    def handle_complex_detail_selection(self, message):
-        field_map = {
-            'Расположение': 'location',
-            'Отделка': 'finishing',
-            'Благоустройство': 'improvement',
-            'Умный дом': 'smart_home',
-            'Архитектура': 'architecture',
-            'Инфраструктура': 'infrastructure',
-            'Экология': 'ecology'
-        }
-        selected_option = message.text
-        if selected_option in field_map:
-            self.handle_complex_detail(message, field_map[selected_option])
-        elif selected_option == 'Назад':
-            self.show_complex_menu(message, self.current_complex_id)
-        else:
-            self.bot.send_message(message.chat.id, "Неверный выбор. Попробуйте снова.")
-            self.show_edit_menu(message)
 
     def show_apartment_selection_menu(self, message):
         cursor = self.conn.cursor()
@@ -425,7 +360,7 @@ class ResidentialComplexHandler:
             apartment = cursor.fetchone()
             if apartment:
                 photo, rooms, description, price = apartment
-                self.bot.send_photo(message.chat.id, photo, caption=f"<b>Количество комнат: {rooms}</b>\n\nОписание: {description}\n\n<b>Цена: {price} сомон</b>", parse_mode='HTML')
+                self.bot.send_photo(message.chat.id, photo, caption=f"<b>Количество комнат: {rooms}</b>\n\nОписание: {description}\n\n<b>Цена от: {price} сомон</b>", parse_mode='HTML')
                 self.show_apartment_selection_menu(message)
             else:
                 self.bot.send_message(message.chat.id, "Квартира не найдена.")
@@ -440,7 +375,7 @@ class PromotionHandler:
     def __init__(self, bot, residential_complex_handler):
         self.bot = bot
         self.residential_complex_handler = residential_complex_handler
-        self.conn = sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False)
+        self.conn = sqlite3.connect('../data/tojsokhtmon.db', check_same_thread=False)
         self.promotion_title = None
         self.promotion_photo = None
         self.promotion_description = None
@@ -534,7 +469,7 @@ class PromotionHandler:
 
     def show_promotion_details(self, message):
         try:
-            with sqlite3.connect('Data/tojsokhtmon.db') as conn:
+            with sqlite3.connect('../data/tojsokhtmon.db') as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT photo, description FROM promotions WHERE title = ?", (message.text,))
                 promotion = cursor.fetchone()
@@ -596,7 +531,7 @@ class PromotionHandler:
 class FAQHandler:
     def __init__(self, bot, residential_complex_handler):
         self.bot = bot
-        self.conn = sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False)
+        self.conn = sqlite3.connect('../data/tojsokhtmon.db', check_same_thread=False)
         self.residential_complex_handler = residential_complex_handler
         self.current_faq_title = None  # Для хранения текущего заголовка FAQ
 
@@ -606,8 +541,10 @@ class FAQHandler:
         faqs = cursor.fetchall()
 
         if not faqs:
-            self.bot.send_message(message.chat.id, "Вопросы не добавлены.")
             markup = self._get_empty_faq_menu_markup()
+            self.bot.send_message(message.chat.id, "Вопросы не добавлены.", reply_markup=markup)
+            # return markup
+            # self.bot.register_next_step_handler(message, self._get_empty_faq_menu_markup)
         else:
             markup = self._get_faq_menu_markup(faqs)
             self.bot.send_message(message.chat.id, "Выберите вопрос для просмотра или управления FAQ:", reply_markup=markup)
@@ -637,7 +574,7 @@ class FAQHandler:
             self.send_faq_details(message, message.text)
 
     def add_faq(self, message):
-        self.bot.send_message(message.chat.id, "Введите название вопроса:")
+        self.bot.send_message(message.chat.id, "Введите вопрос:")
         self.bot.register_next_step_handler(message, self._save_faq_title)
 
     def _save_faq_title(self, message):
@@ -710,24 +647,6 @@ class AdminBotHandler:
             else:
                 bot.send_message(message.chat.id, "У вас нет доступа к этому боту.")
 
-        # Обработка кнопки "Добавить"
-        # @bot.message_handler(func=lambda message: message.text == 'Добавить вопрос')
-        # def handle_add_faq(message):
-        #     self.faq_handler.add_faq(message)
-        #
-        # # Обработка кнопки "Удалить"
-        # @bot.message_handler(func=lambda message: message.text == 'Удалить вопрос')
-        # def handle_delete_faq(message):
-        #     self.faq_handler.delete_faq(message)
-
-        # # Обработка других сообщений
-        # @bot.message_handler(func=lambda message: True)
-        # def handle_message(message):
-        #     if message.text == 'Назад':
-        #         self.faq_handler.handle_back(message)
-        #     else:
-        #         self.faq_handler.send_faq_details(message, message.text)
-
         @bot.message_handler(func=lambda message: message.chat.id == ADMIN_ID)
         def handle_admin_commands(message):
             if message.text == 'Включить бота':
@@ -769,20 +688,6 @@ class AdminBotHandler:
                 if complex_id:
                     self.residential_complex_handler.send_complex_info(message.chat.id, complex_id[0])
                     self.residential_complex_handler.show_complex_menu(message, complex_id[0])
-                else:
-                    field_map = {
-                        'Расположение': 'location',
-                        'Отделка': 'finishing',
-                        'Благоустройство': 'improvement',
-                        'Умный дом': 'smart_home',
-                        'Архитектура': 'architecture',
-                        'Инфраструктура': 'infrastructure',
-                        'Экология': 'ecology'
-                    }
-                    if message.text in field_map:
-                        self.residential_complex_handler.handle_complex_detail(message, field_map[message.text])
-                    elif message.text == 'Редактировать':
-                        self.residential_complex_handler.show_edit_menu(message)
 
 class MainBotHandler:
     def __init__(self, bot, admin_bot_handler):
@@ -832,17 +737,6 @@ class MainBotHandler:
             self.current_selection_mode = 'apartment'
             self.show_complex_menu(message.chat.id)
 
-        # @bot.message_handler(
-        #     func=lambda message: self.admin_bot_handler.main_bot_active and message.text == '🏘 Подобрать Недвижимость')
-        # def handle_select_real_estate_button(message):
-        #     # Отправляем сообщение с кнопкой WebApp
-        #     keyboard = types.InlineKeyboardMarkup()
-        #     webapp_button = types.InlineKeyboardButton(text="Перейти",
-        #                                                web_app=types.WebAppInfo(url="https://tojsokhtmon.tj"))
-        #     keyboard.add(webapp_button)
-        #     self.bot.send_message(message.chat.id, "Воспользуйтесь фильтром подбора недвижимости 👇",
-        #                           reply_markup=keyboard)
-
         @bot.message_handler(func=lambda message: self.admin_bot_handler.main_bot_active and message.text == 'Назад')
         def handle_back_button(message):
             self.current_selection_mode = None
@@ -862,26 +756,16 @@ class MainBotHandler:
             else:
                 self.bot.send_message(message.chat.id, "Не удалось найти выбранный жилой комплекс.")
 
-        @bot.message_handler(func=lambda message: self.admin_bot_handler.main_bot_active and message.text in ['Расположение', 'Отделка', 'Благоустройство', 'Умный дом', 'Архитектура', 'Инфраструктура', 'Экология'])
-        def handle_complex_detail(message):
-            if self.current_complex_id:
-                field_map = {
-                    'Расположение': 'location',
-                    'Отделка': 'finishing',
-                    'Благоустройство': 'improvement',
-                    'Умный дом': 'smart_home',
-                    'Архитектура': 'architecture',
-                    'Инфраструктура': 'infrastructure',
-                    'Экология': 'ecology'
-                }
-                field = field_map[message.text]
-                field_value = self.get_complex_field_value(self.current_complex_id, field)
-                if not field_value:
-                    self.bot.send_message(message.chat.id, f"<b>{message.text}</b>: К сожалению информация ещё не добавлена", parse_mode='HTML')
-                else:
-                    self.bot.send_message(message.chat.id, f"<b>{message.text}</b>\n\n{field_value}", parse_mode='HTML')
-            else:
-                self.bot.send_message(message.chat.id, "Сначала выберите жилой комплекс.")
+        @bot.message_handler(
+            func=lambda message: self.admin_bot_handler.main_bot_active and message.text == 'Выбрать квартиру')
+        def handle_complex_detail_select_apartments(message):
+            self.show_apartment_selection_menu(message.chat.id)
+
+        @bot.message_handler(
+            func=lambda message: self.admin_bot_handler.main_bot_active and message.text == 'Оставить заявку')
+        def handle_complex_detail_feedback(message):
+            complex_name = self.get_complex_field_value(self.current_complex_id, 'name')
+            self.feedback_handler.start_feedback(message, complex_name)
 
         @bot.message_handler(func=lambda message: self.admin_bot_handler.main_bot_active and message.text in ['Однокомнатная', 'Двухкомнатная', 'Трехкомнатная', 'Четырехкомнатная'])
         def handle_apartment_selection(message):
@@ -892,13 +776,24 @@ class MainBotHandler:
                     apartment = self.get_apartment(self.current_complex_id, rooms)
                     if apartment:
                         photo, rooms, description, price = apartment
-                        self.bot.send_photo(message.chat.id, photo, caption=f"<b>Количество комнат: {rooms}</b>\n\nОписание: {description}\n\n<b>Цена: {price} сомон</b>", parse_mode='HTML')
+                        self.bot.send_photo(message.chat.id, photo, caption=f"<b>Количество комнат: {rooms}</b>\n\nОписание: {description}\n\n<b>Цена от: {price} сомон</b>", parse_mode='HTML')
                     else:
                         self.bot.send_message(message.chat.id, "Квартира не найдена.")
                 elif message.text == 'Назад':
                     self.show_main_menu(message.chat.id)
             else:
                 self.bot.send_message(message.chat.id, "Пожалуйста, выберите жилой комплекс сначала.")
+
+        @bot.message_handler(
+            func=lambda message: self.admin_bot_handler.main_bot_active and message.text == 'Выбрать квартиру на сайте')
+        def handle_select_real_estate_button(message):
+            # Отправляем сообщение с кнопкой WebApp
+            keyboard = types.InlineKeyboardMarkup()
+            webapp_button = types.InlineKeyboardButton(text="Перейти",
+                                                       web_app=types.WebAppInfo(url="https://tojsokhtmon.tj"))
+            keyboard.add(webapp_button)
+            self.bot.send_message(message.chat.id, "Вы можете оставить заявку на выбранную недвижимость\nВоспользуйтесь фильтром подбора недвижимости 👇",
+                                  reply_markup=keyboard)
 
     def show_main_menu(self, chat_id):
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -937,15 +832,10 @@ class MainBotHandler:
 
     def show_complex_details_menu(self, chat_id, complex_id):
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        btn1 = types.KeyboardButton('Расположение')
-        btn2 = types.KeyboardButton('Отделка')
-        btn3 = types.KeyboardButton('Благоустройство')
-        btn4 = types.KeyboardButton('Умный дом')
-        btn5 = types.KeyboardButton('Архитектура')
-        btn6 = types.KeyboardButton('Инфраструктура')
-        btn7 = types.KeyboardButton('Экология')
-        btn8 = types.KeyboardButton('Назад')
-        keyboard.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8)
+        btn1 = types.KeyboardButton('Выбрать квартиру')
+        btn2 = types.KeyboardButton('Оставить заявку')
+        btn3 = types.KeyboardButton('Назад')
+        keyboard.add(btn1, btn2, btn3)
         self.bot.send_message(chat_id, "Выберите категорию:", reply_markup=keyboard)
 
     def show_apartment_selection_menu(self, chat_id):
@@ -959,7 +849,9 @@ class MainBotHandler:
         room_map = {1: 'Однокомнатная', 2: 'Двухкомнатная', 3: 'Трехкомнатная', 4: 'Четырехкомнатная'}
         for rooms, in apartments:
             keyboard.add(types.KeyboardButton(room_map.get(rooms, f'{rooms}-комнатная')))
-        keyboard.add(types.KeyboardButton('Назад'))
+        btn1 = types.KeyboardButton('Назад')
+        btn2 = types.KeyboardButton('Выбрать квартиру на сайте')
+        keyboard.add(btn1, btn2)
 
         self.bot.send_message(chat_id, "Выберите тип квартиры:", reply_markup=keyboard)
 
@@ -1016,7 +908,7 @@ class MainBotHandler:
             return
 
         try:
-            with sqlite3.connect('Data/tojsokhtmon.db') as conn:
+            with sqlite3.connect('../data/tojsokhtmon.db') as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT id, title FROM promotions")
                 promotions = cursor.fetchall()
@@ -1040,7 +932,7 @@ class MainBotHandler:
             self.bot.register_next_step_handler(message, self.process_selected_action)
         else:
             self.bot.send_message(message.chat.id, "Акций пока нет.", reply_markup=types.ReplyKeyboardRemove())
-            self.show_main_menu(message)
+            self.show_main_menu(message.chat.id)
 
     def process_selected_action(self, message):
         if message.text == 'Назад':
@@ -1052,7 +944,7 @@ class MainBotHandler:
 
     def show_faq_menu(self, message):
         try:
-            with sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False) as conn:
+            with sqlite3.connect('../data/tojsokhtmon.db', check_same_thread=False) as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT id, title FROM faq")
                 faqs = cursor.fetchall()
@@ -1089,7 +981,7 @@ class MainBotHandler:
 
     def send_faq_details(self, message, faq_title):
         try:
-            with sqlite3.connect('Data/tojsokhtmon.db', check_same_thread=False) as conn:
+            with sqlite3.connect('../data/tojsokhtmon.db', check_same_thread=False) as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT title, description FROM faq WHERE title = ?", (faq_title,))
                 faq = cursor.fetchone()
